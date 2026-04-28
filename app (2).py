@@ -1,16 +1,15 @@
 # ══════════════════════════════════════════════════════════════════════════════
-# FIN 330 — Stock Analytics Dashboard
-# Dark terminal theme | Mobile-first | Live ticker tape
+# FIN 330 Stock Analytics Dashboard
+# Analytics Terminal design | Calibri font | Live S&P 500 ticker tape
 # ══════════════════════════════════════════════════════════════════════════════
 # Structure:
 #   1. Imports
-#   2. Color & Font Constants
-#   3. CSS Theme  (apply_theme)
-#   4. Ticker Tape
-#   5. Calculation Functions  (pure math — no Streamlit calls)
-#   6. Chart Functions        (matplotlib — no st calls)
-#   7. UI / Display Functions (all st calls live here)
-#   8. Main Entry Point
+#   2. Theme & Styling (palette, Calibri font, ticker tape CSS)
+#   3. Ticker Tape (live S&P 500 price scroll)
+#   4. Logic / Calculation Functions
+#   5. Chart Functions
+#   6. Display / UI Functions
+#   7. Main App Entry Point
 # ══════════════════════════════════════════════════════════════════════════════
 
 
@@ -19,420 +18,482 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib.font_manager as fm
 import numpy as np
-import datetime
+import time
 
 
-# ─── 2. COLOR & FONT CONSTANTS ─────────────────────────────────────────────────
-# Change one value here and it propagates throughout the entire app.
+# ─── 2. THEME & STYLING ────────────────────────────────────────────────────────
+# Color palette: near-black background, orange accents, white text.
+# All color constants defined here so changes propagate everywhere.
 
-C_BG        = "#0A0A0A"   # near-black page background
-C_SURFACE   = "#111111"   # card / chart surface
-C_PANEL     = "#141414"   # sidebar background
-C_BORDER    = "#262626"   # subtle borders
-C_ACCENT    = "#FF6600"   # signature orange accent
-C_ACCENT2   = "#CC5200"   # darker orange for pressed states
-C_GREEN     = "#00C853"   # positive / BUY green
-C_RED       = "#FF1744"   # negative / SELL red
-C_BLUE      = "#2979FF"   # HOLD / neutral blue
-C_TEXT      = "#F0F0F0"   # primary white text
-C_MUTED     = "#707070"   # secondary muted text
-C_TICKER_BG = "#0D0D0D"   # ticker strip background
+C_BG        = "#0A0A0A"   # terminal black background
+C_SURFACE   = "#111111"   # slightly lighter surface for cards
+C_PANEL     = "#1A1A1A"   # sidebar and panel background
+C_BORDER    = "#2A2A2A"   # very subtle borders
+C_ACCENT    = "#FF6600"   # signature orange
+C_ACCENT2   = "#E85500"   # darker orange for hover states
+C_GREEN     = "#00C853"   # positive / buy signal green
+C_RED       = "#FF1744"   # negative / sell signal red
+C_BLUE      = "#2979FF"   # neutral / info blue
+C_TEXT      = "#F5F5F5"   # primary white text
+C_MUTED     = "#757575"   # secondary grey text
+C_TICKER_BG = "#0D0D0D"   # ticker tape background
 
 # Chart line colors
-CH_PRICE = "#FF6600"   # price line
-CH_MA20  = "#FFD600"   # 20-day MA (yellow)
-CH_MA50  = "#00BCD4"   # 50-day MA (cyan)
-CH_RSI   = "#CE93D8"   # RSI (purple)
-CH_PORT  = "#00C853"   # portfolio return (green)
-CH_BENCH = "#2979FF"   # benchmark return (blue)
+CH_PRICE  = "#FF6600"   # price line (orange)
+CH_MA20   = "#FFD600"   # 20-day MA (yellow)
+CH_MA50   = "#00BCD4"   # 50-day MA (cyan)
+CH_RSI    = "#CE93D8"   # RSI (purple)
+CH_PORT   = "#00C853"   # portfolio (green)
+CH_BENCH  = "#2979FF"   # benchmark (blue)
 
-# Font stack — Calibri if available (Windows), clean fallback everywhere else
-FONT = "'Calibri', 'Trebuchet MS', Arial, sans-serif"
+# Font stack: Calibri first, fallback to system sans-serif
+FONT = "'Calibri', 'Gill Sans', 'Trebuchet MS', Arial, sans-serif"
 
-
-# ─── 3. CSS THEME ──────────────────────────────────────────────────────────────
 
 def apply_theme():
     """
-    DISPLAY: Inject CSS for the dark terminal theme.
-
-    Key rules:
-    - Only hides footer and the top deploy toolbar — NOT the sidebar toggle,
-      so the sidebar remains reachable on mobile.
-    - Mobile: block container uses tight horizontal padding (0.75 rem).
-    - Desktop: padding widens to 2 rem via media query.
-    - Expander: Streamlit renders its own header button; we only strip the
-      raw <summary> element that overlaps it.
-    - Columns stack to single-column on screens narrower than 600 px.
+    DISPLAY: Inject all CSS for the dark analytics theme.
+    Covers page, sidebar, metrics, buttons, badges, and the ticker tape.
+    Calibri is set as the primary font throughout.
+    Includes mobile-responsive breakpoints (Change #9).
+    Sidebar toggle arrow is tinted orange (Change #1).
+    Expander double-arrow bug fix included (Change #3).
     """
     st.markdown(f"""
     <style>
-    /* ── Global font & background ── */
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-    html, body, .stApp, [class*="css"] {{
-        background-color: {C_BG} !important;
-        color: {C_TEXT};
-        font-family: {FONT};
-    }}
+        /* ── Load Calibri via Google Fonts fallback ── */
+        @import url('https://fonts.googleapis.com/css2?family=Encode+Sans:wght@300;400;600;700&display=swap');
 
-    /* ── Hide ONLY footer and top deploy toolbar — sidebar stays intact ── */
-    footer {{ visibility: hidden !important; height: 0 !important; }}
-    [data-testid="stToolbar"] {{ display: none !important; }}
+        /* ── Global page ── */
+        html, body, .stApp, [class*="css"] {{
+            background-color: {C_BG} !important;
+            color: {C_TEXT};
+            font-family: {FONT};
+        }}
 
-    /* ── Reduce top padding so the orange bar sits flush ── */
-    [data-testid="stAppViewContainer"] > .main {{
-        padding-top: 0 !important;
-    }}
-    .block-container {{
-        padding-top: 0 !important;
-        padding-bottom: 2rem !important;
-        padding-left: 0.75rem !important;
-        padding-right: 0.75rem !important;
-        max-width: 100% !important;
-    }}
-    @media (min-width: 768px) {{
+        /* ── Block container: responsive padding (Change #9) ── */
         .block-container {{
-            padding-left: 2rem !important;
-            padding-right: 2rem !important;
+            padding-top: 0 !important;
+            padding-bottom: 2rem;
+            padding-left: 0.75rem;
+            padding-right: 0.75rem;
         }}
-    }}
-
-    /* ── Sidebar ── */
-    section[data-testid="stSidebar"] {{
-        background-color: {C_PANEL} !important;
-        border-right: 2px solid {C_ACCENT} !important;
-    }}
-    section[data-testid="stSidebar"] * {{
-        color: {C_TEXT} !important;
-        font-family: {FONT} !important;
-    }}
-    /* Sidebar toggle arrow: keep visible but tint it orange */
-    [data-testid="collapsedControl"] {{
-        color: {C_ACCENT} !important;
-        background: {C_PANEL} !important;
-    }}
-
-    /* ── Orange top bar ── */
-    .top-bar {{
-        background: {C_ACCENT};
-        padding: 7px 14px;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        flex-wrap: wrap;
-        gap: 4px;
-        margin-bottom: 0;
-    }}
-    .top-bar-title {{
-        color: #000;
-        font-weight: 700;
-        font-size: 0.82rem;
-        letter-spacing: 0.1em;
-        text-transform: uppercase;
-    }}
-    .top-bar-right {{
-        color: #000;
-        font-size: 0.72rem;
-        opacity: 0.7;
-    }}
-
-    /* ── Ticker tape ── */
-    .ticker-wrapper {{
-        background: {C_TICKER_BG};
-        border-top: 1px solid {C_ACCENT};
-        border-bottom: 1px solid {C_BORDER};
-        overflow: hidden;
-        white-space: nowrap;
-        padding: 12px 0;
-    }}
-    .ticker-track {{
-        display: inline-block;
-        animation: ticker-scroll 80s linear infinite;
-    }}
-    .ticker-track:hover {{ animation-play-state: paused; }}
-    .ticker-item {{
-        display: inline-block;
-        padding: 0 20px;
-        font-size: 0.79rem;
-        letter-spacing: 0.02em;
-    }}
-    .t-sym   {{ color: {C_TEXT};   font-weight: 700; }}
-    .t-price {{ color: #AAAAAA;   margin-left: 5px; }}
-    .t-up    {{ color: {C_GREEN}; margin-left: 4px; font-size: 0.74rem; }}
-    .t-down  {{ color: {C_RED};   margin-left: 4px; font-size: 0.74rem; }}
-    @keyframes ticker-scroll {{
-        0%   {{ transform: translateX(0); }}
-        100% {{ transform: translateX(-50%); }}
-    }}
-
-    /* ── Hero / landing card ── */
-    .hero-card {{
-        background: linear-gradient(135deg, #111111 0%, #1a0900 100%);
-        border: 1px solid {C_BORDER};
-        border-left: 4px solid {C_ACCENT};
-        border-radius: 4px;
-        padding: 2rem 1.4rem 1.8rem;
-        margin: 1.2rem 0 1.4rem;
-        text-align: center;
-    }}
-    .hero-title {{
-        font-size: clamp(1.3rem, 4vw, 1.9rem);
-        font-weight: 700;
-        color: {C_TEXT};
-        letter-spacing: 0.04em;
-        margin-bottom: 0.4rem;
-    }}
-    .hero-title span {{ color: {C_ACCENT}; }}
-    .hero-sub {{
-        color: {C_MUTED};
-        font-size: 0.86rem;
-        line-height: 1.6;
-        margin-bottom: 1.3rem;
-    }}
-    .hero-chips {{
-        display: flex;
-        flex-wrap: wrap;
-        gap: 7px;
-        justify-content: center;
-        margin-bottom: 1.3rem;
-    }}
-    .chip {{
-        background: rgba(255,102,0,0.1);
-        border: 1px solid rgba(255,102,0,0.3);
-        color: {C_ACCENT};
-        border-radius: 3px;
-        padding: 4px 11px;
-        font-size: 0.72rem;
-        font-weight: 600;
-        letter-spacing: 0.06em;
-    }}
-    .hero-hint {{
-        color: {C_MUTED};
-        font-size: 0.78rem;
-    }}
-    .hero-hint strong {{ color: {C_TEXT}; }}
-
-    /* ── Step labels & dividers ── */
-    .step-label {{
-        font-size: 0.62rem;
-        color: {C_MUTED};
-        text-transform: uppercase;
-        letter-spacing: 0.18em;
-        margin-bottom: 0.05rem;
-    }}
-    .acc-divider {{
-        border: none;
-        border-top: 1px solid {C_ACCENT};
-        margin: 0.25rem 0 0.9rem;
-        opacity: 0.45;
-    }}
-
-    /* ── Metric cards ── */
-    [data-testid="stMetric"] {{
-        background: {C_SURFACE} !important;
-        border: 1px solid {C_BORDER} !important;
-        border-left: 3px solid {C_ACCENT} !important;
-        border-radius: 3px !important;
-        padding: 0.75rem 0.9rem !important;
-        transition: box-shadow 0.2s;
-    }}
-    [data-testid="stMetric"]:hover {{
-        box-shadow: 0 0 10px rgba(255,102,0,0.14);
-    }}
-    [data-testid="stMetricLabel"] {{
-        color: {C_MUTED} !important;
-        font-size: 0.64rem !important;
-        text-transform: uppercase !important;
-        letter-spacing: 0.1em !important;
-    }}
-    [data-testid="stMetricValue"] {{
-        color: {C_TEXT} !important;
-        font-size: 1.2rem !important;
-        font-weight: 700 !important;
-    }}
-
-    /* ── Buttons ── */
-    .stButton > button {{
-        background: {C_ACCENT} !important;
-        color: #000 !important;
-        border: none !important;
-        border-radius: 3px !important;
-        font-weight: 700 !important;
-        font-size: 0.82rem !important;
-        letter-spacing: 0.08em !important;
-        padding: 0.55rem 1rem !important;
-        width: 100% !important;
-        text-transform: uppercase !important;
-        transition: background 0.15s ease !important;
-    }}
-    .stButton > button:hover {{
-        background: {C_ACCENT2} !important;
-    }}
-
-    /* ── Download button ── */
-    .stDownloadButton > button {{
-        background: transparent !important;
-        color: {C_ACCENT} !important;
-        border: 1px solid {C_ACCENT} !important;
-        border-radius: 3px !important;
-        font-size: 0.79rem !important;
-        width: 100% !important;
-    }}
-
-    /* ── Alerts ── */
-    .stSuccess {{
-        background: rgba(0,200,83,0.07) !important;
-        border-left: 3px solid {C_GREEN} !important;
-        border-radius: 2px !important;
-    }}
-    .stError {{
-        background: rgba(255,23,68,0.07) !important;
-        border-left: 3px solid {C_RED} !important;
-        border-radius: 2px !important;
-    }}
-
-    /* ── BUY / SELL / HOLD badges ── */
-    .badge-buy {{
-        display: inline-block;
-        background: rgba(0,200,83,0.1);
-        color: {C_GREEN};
-        border: 1px solid {C_GREEN};
-        border-radius: 3px;
-        padding: 0.45rem 1.8rem;
-        font-size: 1.45rem;
-        font-weight: 700;
-        letter-spacing: 0.18em;
-    }}
-    .badge-sell {{
-        display: inline-block;
-        background: rgba(255,23,68,0.1);
-        color: {C_RED};
-        border: 1px solid {C_RED};
-        border-radius: 3px;
-        padding: 0.45rem 1.8rem;
-        font-size: 1.45rem;
-        font-weight: 700;
-        letter-spacing: 0.18em;
-    }}
-    .badge-hold {{
-        display: inline-block;
-        background: rgba(41,121,255,0.1);
-        color: {C_BLUE};
-        border: 1px solid {C_BLUE};
-        border-radius: 3px;
-        padding: 0.45rem 1.8rem;
-        font-size: 1.45rem;
-        font-weight: 700;
-        letter-spacing: 0.18em;
-    }}
-
-    /* ── Disclaimer text ── */
-    .disclaimer {{
-        color: {C_MUTED};
-        font-size: 0.72rem;
-        font-style: italic;
-        margin-top: 0.65rem;
-        border-left: 2px solid {C_BORDER};
-        padding-left: 0.6rem;
-        line-height: 1.5;
-    }}
-
-    /* ── Expander ────────────────────────────────────────────────────────────
-       Streamlit renders its own header button for expanders. The raw <summary>
-       underneath it causes the doubled "arrow + text" overlap.
-       We only hide the raw <summary> — Streamlit's styled button still works.
-    ── */
-    [data-testid="stExpander"] details summary {{
-        display: none !important;
-    }}
-    [data-testid="stExpander"] {{
-        background: {C_SURFACE} !important;
-        border: 1px solid {C_BORDER} !important;
-        border-radius: 3px !important;
-    }}
-
-    /* ── Radio buttons ── */
-    div[data-testid="stRadio"] label {{
-        background: {C_SURFACE};
-        border: 1px solid {C_BORDER};
-        border-radius: 3px;
-        padding: 0.38rem 0.7rem;
-        font-size: 0.82rem;
-        cursor: pointer;
-        display: block;
-        margin-bottom: 3px;
-        transition: border-color 0.15s;
-    }}
-    div[data-testid="stRadio"] label:has(input:checked) {{
-        border-color: {C_ACCENT};
-        color: {C_ACCENT} !important;
-        background: rgba(255,102,0,0.07);
-    }}
-
-    /* ── Sliders ── */
-    [data-testid="stSlider"] [role="slider"] {{
-        background: {C_ACCENT} !important;
-    }}
-
-    /* ── Text inputs ── */
-    [data-testid="stTextInput"] input {{
-        background: {C_SURFACE} !important;
-        border: 1px solid {C_BORDER} !important;
-        border-radius: 3px !important;
-        color: {C_TEXT} !important;
-        font-family: {FONT} !important;
-    }}
-    [data-testid="stTextInput"] input:focus {{
-        border-color: {C_ACCENT} !important;
-        box-shadow: 0 0 0 1px {C_ACCENT}44 !important;
-    }}
-
-    /* ── Dataframe ── */
-    [data-testid="stDataFrame"] {{
-        border: 1px solid {C_BORDER} !important;
-        border-radius: 3px !important;
-    }}
-
-    /* ── Page-level headers ── */
-    h1, h2, h3 {{
-        color: {C_TEXT} !important;
-        font-family: {FONT} !important;
-    }}
-
-    /* ── Mobile: stack columns on narrow screens ── */
-    @media (max-width: 600px) {{
-        [data-testid="column"] {{
-            min-width: 100% !important;
-            width: 100% !important;
+        @media (min-width: 768px) {{
+            .block-container {{
+                padding-left: 2rem;
+                padding-right: 2rem;
+            }}
         }}
-        .badge-buy, .badge-sell, .badge-hold {{
-            font-size: 1.15rem;
-            padding: 0.4rem 1rem;
+
+        /* ── Sidebar (Change #1: keep visible, orange toggle arrow) ── */
+        section[data-testid="stSidebar"] {{
+            background-color: {C_PANEL} !important;
+            border-right: 2px solid {C_ACCENT};
         }}
-    }}
+        section[data-testid="stSidebar"] * {{
+            color: {C_TEXT} !important;
+            font-family: {FONT} !important;
+        }}
+        section[data-testid="stSidebar"] .stRadio label {{
+            font-size: 0.9rem;
+            letter-spacing: 0.04em;
+        }}
+        /* Tint the sidebar collapse/expand arrow orange */
+        [data-testid="collapsedControl"] svg,
+        button[data-testid="baseButton-headerNoPadding"] svg {{
+            fill: {C_ACCENT} !important;
+            color: {C_ACCENT} !important;
+        }}
+
+        /* ── Sidebar text inputs: dark surface, orange focus (Change #11) ── */
+        section[data-testid="stSidebar"] input[type="text"] {{
+            background-color: {C_BG} !important;
+            border: 1px solid {C_BORDER} !important;
+            color: {C_TEXT} !important;
+        }}
+        section[data-testid="stSidebar"] input[type="text"]:focus {{
+            border-color: {C_ACCENT} !important;
+            box-shadow: 0 0 0 1px {C_ACCENT} !important;
+        }}
+
+        /* ── Sidebar section labels: uppercase, muted, small (Change #11) ── */
+        .sidebar-section-label {{
+            font-size: 0.66rem;
+            color: {C_MUTED};
+            text-transform: uppercase;
+            letter-spacing: 0.14em;
+            font-family: {FONT};
+            margin-bottom: 0.2rem;
+        }}
+
+        /* ── All text elements use Calibri ── */
+        h1, h2, h3, h4, p, span, div, label, input, button, td, th {{
+            font-family: {FONT} !important;
+        }}
+
+        /* ── Headers: responsive font size, orange, bold (Changes #9, #11) ── */
+        h1 {{
+            color: {C_TEXT} !important;
+            font-size: 1.6rem !important;
+            font-weight: 700 !important;
+            letter-spacing: 0.04em;
+        }}
+        h2, h3 {{
+            color: {C_ACCENT} !important;
+            font-weight: 700 !important;
+            letter-spacing: 0.05em;
+            font-size: clamp(1.1rem, 3vw, 1.45rem) !important;
+        }}
+
+        /* ── Orange top bar ── */
+        .fin-topbar {{
+            background-color: {C_ACCENT};
+            padding: 6px 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 0;
+        }}
+        .fin-topbar-title {{
+            color: #000;
+            font-weight: 700;
+            font-size: 0.85rem;
+            letter-spacing: 0.12em;
+            font-family: {FONT};
+        }}
+        .fin-topbar-right {{
+            color: #000;
+            font-size: 0.75rem;
+            font-family: {FONT};
+            opacity: 0.7;
+        }}
+
+        /* ── Ticker tape strip (Change #6: taller padding, larger font) ── */
+        .ticker-wrapper {{
+            background-color: {C_TICKER_BG};
+            border-top: 1px solid {C_ACCENT};
+            border-bottom: 1px solid {C_BORDER};
+            overflow: hidden;
+            white-space: nowrap;
+            padding: 12px 0;
+            margin-bottom: 0;
+        }}
+        .ticker-track {{
+            display: inline-block;
+            animation: ticker-scroll 90s linear infinite;
+        }}
+        .ticker-track:hover {{
+            animation-play-state: paused;
+        }}
+        .ticker-item {{
+            display: inline-block;
+            padding: 0 28px;
+            font-size: 0.82rem;
+            font-family: {FONT};
+            letter-spacing: 0.04em;
+        }}
+        .t-sym  {{ color: {C_TEXT};    font-weight: 700; }}
+        .t-price{{ color: #BBBBBB;     margin-left: 6px; }}
+        .t-up   {{ color: {C_GREEN};   margin-left: 4px; font-size: 0.75rem; }}
+        .t-down {{ color: {C_RED};     margin-left: 4px; font-size: 0.75rem; }}
+        @keyframes ticker-scroll {{
+            0%   {{ transform: translateX(0); }}
+            100% {{ transform: translateX(-50%); }}
+        }}
+
+        /* ── Section divider label ── */
+        .step-label {{
+            font-size: 0.68rem;
+            color: {C_MUTED};
+            text-transform: uppercase;
+            letter-spacing: 0.16em;
+            margin-bottom: 0.1rem;
+            font-family: {FONT};
+        }}
+
+        /* ── Orange accent divider line ── */
+        .fin-divider {{
+            border: none;
+            border-top: 1px solid {C_ACCENT};
+            margin: 0.3rem 0 1rem 0;
+            opacity: 0.5;
+        }}
+
+        /* ── Metric cards: orange left border, hover shadow (Change #11) ── */
+        [data-testid="stMetric"] {{
+            background-color: {C_SURFACE};
+            border: 1px solid {C_BORDER};
+            border-left: 3px solid {C_ACCENT};
+            border-radius: 2px;
+            padding: 0.85rem 1rem;
+            transition: box-shadow 0.2s ease;
+        }}
+        [data-testid="stMetric"]:hover {{
+            box-shadow: 0 0 8px rgba(255,102,0,0.2);
+        }}
+        [data-testid="stMetricLabel"] {{
+            color: {C_MUTED} !important;
+            font-size: 0.7rem !important;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            font-family: {FONT} !important;
+        }}
+        [data-testid="stMetricValue"] {{
+            color: {C_TEXT} !important;
+            font-size: 1.35rem !important;
+            font-weight: 700 !important;
+            font-family: {FONT} !important;
+        }}
+
+        /* ── Dataframe ── */
+        [data-testid="stDataFrame"] {{
+            border: 1px solid {C_BORDER};
+            border-radius: 2px;
+        }}
+
+        /* ── Run buttons: orange, uppercase, bold (Change #11) ── */
+        .stButton > button {{
+            background-color: {C_ACCENT} !important;
+            color: #000 !important;
+            border: none !important;
+            border-radius: 3px !important;
+            font-family: {FONT} !important;
+            font-weight: 700 !important;
+            font-size: 0.85rem !important;
+            letter-spacing: 0.06em !important;
+            padding: 0.55rem 1.4rem !important;
+            width: 100%;
+            text-transform: uppercase;
+        }}
+        .stButton > button:hover {{
+            background-color: {C_ACCENT2} !important;
+        }}
+
+        /* ── Download button ── */
+        .stDownloadButton > button {{
+            background-color: transparent !important;
+            color: {C_ACCENT} !important;
+            border: 1px solid {C_ACCENT} !important;
+            border-radius: 2px !important;
+            font-family: {FONT} !important;
+            font-size: 0.82rem !important;
+            letter-spacing: 0.04em !important;
+            width: 100%;
+        }}
+
+        /* ── Success / Error alerts ── */
+        .stSuccess {{
+            background-color: rgba(0, 200, 83, 0.08) !important;
+            border-left: 3px solid {C_GREEN} !important;
+            border-radius: 2px !important;
+            font-family: {FONT} !important;
+        }}
+        .stError {{
+            background-color: rgba(255, 23, 68, 0.08) !important;
+            border-left: 3px solid {C_RED} !important;
+            border-radius: 2px !important;
+        }}
+
+        /* ── Recommendation badges ── */
+        .badge-buy {{
+            display: inline-block;
+            background-color: rgba(0,200,83,0.12);
+            color: {C_GREEN};
+            border: 1px solid {C_GREEN};
+            border-radius: 2px;
+            padding: 0.4rem 1.6rem;
+            font-size: 1.6rem;
+            font-weight: 700;
+            letter-spacing: 0.2em;
+            font-family: {FONT};
+        }}
+        .badge-sell {{
+            display: inline-block;
+            background-color: rgba(255,23,68,0.12);
+            color: {C_RED};
+            border: 1px solid {C_RED};
+            border-radius: 2px;
+            padding: 0.4rem 1.6rem;
+            font-size: 1.6rem;
+            font-weight: 700;
+            letter-spacing: 0.2em;
+            font-family: {FONT};
+        }}
+        .badge-hold {{
+            display: inline-block;
+            background-color: rgba(41,121,255,0.12);
+            color: {C_BLUE};
+            border: 1px solid {C_BLUE};
+            border-radius: 2px;
+            padding: 0.4rem 1.6rem;
+            font-size: 1.6rem;
+            font-weight: 700;
+            letter-spacing: 0.2em;
+            font-family: {FONT};
+        }}
+        /* Badge font-size reduces on mobile (Change #9) */
+        @media (max-width: 600px) {{
+            .badge-buy, .badge-sell, .badge-hold {{
+                font-size: 1.15rem;
+            }}
+        }}
+
+        /* ── Disclaimer block under recommendation (Change #5) ── */
+        .rec-disclaimer {{
+            border-left: 3px solid {C_BORDER};
+            padding: 0.4rem 0.75rem;
+            margin-top: 0.75rem;
+            font-style: italic;
+            font-size: 0.72rem;
+            color: {C_MUTED};
+            font-family: {FONT};
+        }}
+
+        /* ── Radio buttons: tab style ── */
+        div[data-testid="stRadio"] > div {{
+            gap: 0.3rem;
+        }}
+        div[data-testid="stRadio"] label {{
+            background-color: {C_SURFACE};
+            border: 1px solid {C_BORDER};
+            border-radius: 2px;
+            padding: 0.4rem 0.8rem;
+            font-size: 0.82rem;
+            font-family: {FONT};
+            cursor: pointer;
+            width: 100%;
+            display: block;
+        }}
+        div[data-testid="stRadio"] label:has(input:checked) {{
+            border-color: {C_ACCENT};
+            color: {C_ACCENT};
+            background-color: rgba(255,102,0,0.08);
+        }}
+
+        /* ── Expander: fix double-arrow/overlapping text bug (Change #3) ── */
+        [data-testid="stExpander"] details summary {{
+            display: none !important;
+        }}
+        details {{
+            border: 1px solid {C_BORDER} !important;
+            border-radius: 2px !important;
+            background-color: {C_SURFACE} !important;
+        }}
+        summary {{
+            color: {C_MUTED} !important;
+            font-size: 0.8rem !important;
+            font-family: {FONT} !important;
+        }}
+
+        /* ── Stack metric columns on narrow mobile screens (Change #9) ── */
+        @media (max-width: 600px) {{
+            [data-testid="column"] {{
+                min-width: 100% !important;
+                width: 100% !important;
+            }}
+        }}
+
+        /* ── Hero card styles (Change #10) ── */
+        .hero-card {{
+            background: linear-gradient(135deg, #111111 0%, #1a0900 100%);
+            border-left: 4px solid {C_ACCENT};
+            border-radius: 4px;
+            padding: 2rem 2rem 1.75rem 2rem;
+            margin-top: 1rem;
+        }}
+        .hero-title {{
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: {C_TEXT};
+            letter-spacing: 0.12em;
+            font-family: {FONT};
+            margin-bottom: 0.5rem;
+        }}
+        .hero-title .accent {{
+            color: {C_ACCENT};
+        }}
+        .hero-subtitle {{
+            font-size: 0.88rem;
+            color: {C_MUTED};
+            font-family: {FONT};
+            margin-bottom: 1.2rem;
+            line-height: 1.5;
+        }}
+        .hero-chips {{
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+        }}
+        .hero-chip {{
+            background-color: rgba(255,102,0,0.1);
+            border: 1px solid rgba(255,102,0,0.35);
+            color: {C_ACCENT};
+            font-size: 0.68rem;
+            font-weight: 700;
+            letter-spacing: 0.1em;
+            padding: 0.25rem 0.65rem;
+            border-radius: 2px;
+            font-family: {FONT};
+        }}
+        .hero-hint {{
+            font-size: 0.78rem;
+            color: {C_MUTED};
+            font-style: italic;
+            font-family: {FONT};
+            margin-top: 0.5rem;
+        }}
     </style>
     """, unsafe_allow_html=True)
 
 
-# ─── 4. TICKER TAPE ────────────────────────────────────────────────────────────
-# Live market prices — cached 5 minutes to avoid hammering Yahoo Finance.
+def style_chart(ax, fig, title=""):
+    """
+    DISPLAY: Apply dark theme to a matplotlib chart.
+    Orange accent on the title, grey grid lines, no top/right spines.
+    """
+    fig.patch.set_facecolor(C_SURFACE)
+    ax.set_facecolor(C_BG)
+    ax.set_title(title, color=C_TEXT, fontsize=10, pad=10,
+                 fontfamily="DejaVu Sans", fontweight="bold")
+    ax.set_xlabel(ax.get_xlabel(), color=C_MUTED, fontsize=8, fontfamily="DejaVu Sans")
+    ax.set_ylabel(ax.get_ylabel(), color=C_MUTED, fontsize=8, fontfamily="DejaVu Sans")
+    ax.tick_params(colors=C_MUTED, labelsize=7)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.spines["left"].set_color(C_BORDER)
+    ax.spines["bottom"].set_color(C_BORDER)
+    ax.grid(True, color="#1E1E1E", linewidth=0.6, alpha=0.8)
+    # Orange bottom border line
+    ax.axhline(y=ax.get_ylim()[0], color=C_ACCENT, linewidth=1.2, alpha=0.4)
+    legend = ax.get_legend()
+    if legend:
+        legend.get_frame().set_facecolor(C_SURFACE)
+        legend.get_frame().set_edgecolor(C_BORDER)
+        for text in legend.get_texts():
+            text.set_color(C_TEXT)
+            text.set_fontsize(7)
+
+
+# ─── 3. TICKER TAPE ────────────────────────────────────────────────────────────
+# Fetches live prices for key S&P 500 stocks and renders a scrolling HTML ticker.
 
 TICKER_SYMBOLS = [
-    "AAPL","MSFT","NVDA","AMZN","GOOGL","META","TSLA",
-    "JPM","V","UNH","XOM","JNJ","WMT","MA","PG","HD",
-    "CVX","MRK","LLY","ABBV","PEP","KO","AVGO","COST",
-    "MCD","TMO","BAC","WFC","GS","MS",
-    "SPY","QQQ","DIA"
+    "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "BRK-B",
+    "JPM", "V", "UNH", "XOM", "JNJ", "WMT", "MA", "PG", "HD",
+    "CVX", "MRK", "LLY", "ABBV", "PEP", "KO", "AVGO", "COST",
+    "MCD", "TMO", "ACN", "CSCO", "CRM", "BAC", "WFC", "GS", "MS",
+    "SPY", "QQQ", "DIA"
 ]
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300)  # Cache for 5 minutes
 def fetch_ticker_data(symbols: list) -> list:
     """
-    DATA: Batch-download 2 days of closing prices for all tape symbols.
-    Returns a list of dicts: {symbol, price, change_pct}.
-    Cached for 5 minutes (ttl=300) — yfinance is slow for large batches.
+    DATA: Fetch current price and daily change for all ticker tape symbols.
+    Returns a list of dicts: {symbol, price, change_pct}. Cached 5 minutes.
     """
     results = []
     try:
@@ -447,386 +508,366 @@ def fetch_ticker_data(symbols: list) -> list:
             col = raw[sym].dropna()
             if len(col) < 2:
                 continue
-            price = float(col.iloc[-1])
-            prev  = float(col.iloc[-2])
-            chg   = (price - prev) / prev * 100
-            results.append({"symbol": sym, "price": price, "change_pct": chg})
+            price      = col.iloc[-1]
+            prev_price = col.iloc[-2]
+            chg_pct    = ((price - prev_price) / prev_price) * 100
+            results.append({"symbol": sym, "price": price, "change_pct": chg_pct})
     except Exception:
-        pass   # if fetch fails, the tape is simply skipped — non-critical
+        pass
     return results
 
 
 def render_ticker_tape():
     """
-    DISPLAY: Build and inject the scrolling HTML ticker tape.
-    Items are duplicated so the CSS scroll animation loops seamlessly.
+    DISPLAY: Render the scrolling ticker tape. Doubles items for seamless loop.
     """
     data = fetch_ticker_data(TICKER_SYMBOLS)
     if not data:
         return
-
-    items = ""
-    for d in data:
-        arrow = "▲" if d["change_pct"] >= 0 else "▼"
-        cls   = "t-up" if d["change_pct"] >= 0 else "t-down"
-        items += (
+    items_html = ""
+    for item in data:
+        sym   = item["symbol"]
+        price = item["price"]
+        chg   = item["change_pct"]
+        arrow = "▲" if chg >= 0 else "▼"
+        cls   = "t-up" if chg >= 0 else "t-down"
+        items_html += (
             f'<span class="ticker-item">'
-            f'<span class="t-sym">{d["symbol"]}</span>'
-            f'<span class="t-price">${d["price"]:.2f}</span>'
-            f'<span class="{cls}">{arrow}{abs(d["change_pct"]):.2f}%</span>'
+            f'<span class="t-sym">{sym}</span>'
+            f'<span class="t-price">${price:.2f}</span>'
+            f'<span class="{cls}">{arrow} {abs(chg):.2f}%</span>'
             f'</span>'
-            f'<span style="color:#303030;margin:0 2px;font-size:0.65rem;">|</span>'
+            f'<span style="color:#2A2A2A; font-size:0.7rem;">|</span>'
         )
-
-    # Duplicate items so the loop has no visible seam
-    st.markdown(
-        f'<div class="ticker-wrapper">'
-        f'<div class="ticker-track">{items}{items}</div>'
-        f'</div>',
-        unsafe_allow_html=True
-    )
-
-
-# ─── 5. CALCULATION FUNCTIONS ──────────────────────────────────────────────────
-# Pure math — zero Streamlit calls in this section.
+    scrolling_html = f"""
+    <div class="ticker-wrapper">
+        <div class="ticker-track">
+            {items_html}{items_html}
+        </div>
+    </div>
+    """
+    st.markdown(scrolling_html, unsafe_allow_html=True)
 
 
-# ── Stock Analysis helpers ──────────────────────────────────────────────────
+# ─── 4. LOGIC / CALCULATION FUNCTIONS ──────────────────────────────────────────
+# Pure math functions. No Streamlit calls here.
+
+# ── Stock Analysis ──
 
 def fetch_stock_data(ticker: str):
-    """DATA: Download 6 months of daily OHLCV for one ticker."""
+    """DATA: Download 6 months of daily OHLCV data for one stock."""
     stock = yf.Ticker(ticker)
     df    = stock.history(period="6mo")
     return stock, df
 
 
 def calc_moving_averages(df: pd.DataFrame) -> pd.DataFrame:
-    """PROCESSING: Append MA20 and MA50 columns to the price DataFrame."""
-    df["MA20"] = df["Close"].rolling(20).mean()
-    df["MA50"] = df["Close"].rolling(50).mean()
+    """PROCESSING: Add 20-day and 50-day simple moving averages."""
+    df["MA20"] = df["Close"].rolling(window=20).mean()
+    df["MA50"] = df["Close"].rolling(window=50).mean()
     return df
 
 
 def calc_trend(df: pd.DataFrame) -> str:
-    """
-    PROCESSING: Classify trend as Uptrend / Downtrend / Mixed.
-    Logic: Price > MA20 > MA50 → Strong Uptrend. Reverse → Strong Downtrend.
-    """
+    """PROCESSING: Classify trend via price vs moving averages."""
     price = df["Close"].iloc[-1]
     ma20  = df["MA20"].iloc[-1]
     ma50  = df["MA50"].iloc[-1]
-    if price > ma20 > ma50:  return "Strong Uptrend"
-    if price < ma20 < ma50:  return "Strong Downtrend"
+    if price > ma20 > ma50:
+        return "Strong Uptrend"
+    elif price < ma20 < ma50:
+        return "Strong Downtrend"
     return "Mixed Trend"
 
 
 def calc_rsi(df: pd.DataFrame, window: int = 14) -> pd.DataFrame:
-    """
-    PROCESSING: 14-day RSI appended as df['RSI'].
-    RSI > 70 → overbought. RSI < 30 → oversold.
-    """
+    """PROCESSING: Calculate 14-day RSI. Above 70 = overbought, below 30 = oversold."""
     delta    = df["Close"].diff()
-    gain     = delta.clip(lower=0).rolling(window).mean()
-    loss     = (-delta.clip(upper=0)).rolling(window).mean()
-    rs       = gain / loss
+    gain     = delta.clip(lower=0)
+    loss     = -delta.clip(upper=0)
+    avg_gain = gain.rolling(window).mean()
+    avg_loss = loss.rolling(window).mean()
+    rs       = avg_gain / avg_loss
     df["RSI"] = 100 - (100 / (1 + rs))
     return df
 
 
-def interpret_rsi(rsi: float) -> str:
-    """PROCESSING: Human-readable RSI signal label."""
-    if rsi > 70:  return "Overbought (Possible Sell)"
-    if rsi < 30:  return "Oversold (Possible Buy)"
+def interpret_rsi(rsi_value: float) -> str:
+    """PROCESSING: Translate RSI value into a buy/sell/neutral signal."""
+    if rsi_value > 70:
+        return "Overbought (Possible Sell)"
+    elif rsi_value < 30:
+        return "Oversold (Possible Buy)"
     return "Neutral"
 
 
 def calc_volatility(df: pd.DataFrame) -> float:
-    """
-    PROCESSING: 20-day annualised volatility expressed as a percentage.
-    Formula: rolling_std(20) × √252 × 100.
-    """
-    return df["Close"].pct_change().rolling(20).std().iloc[-1] * np.sqrt(252) * 100
+    """PROCESSING: 20-day annualized volatility = daily_std * sqrt(252) * 100."""
+    daily_returns = df["Close"].pct_change()
+    return daily_returns.rolling(window=20).std().iloc[-1] * np.sqrt(252) * 100
+
+
+def classify_volatility(volatility: float) -> str:
+    """PROCESSING: Bucket volatility into High (>40%), Medium (25–40%), Low (<25%)."""
+    if volatility > 40:
+        return "High"
+    elif volatility >= 25:
+        return "Medium"
+    return "Low"
 
 
 def calc_annualized_return(df: pd.DataFrame) -> float:
     """
-    PROCESSING: Annualised return from the 6-month window.
-    Formula: (end/start)^(252/n) − 1, result in %.
-    252 = approximate US trading days per year.
+    PROCESSING: Compute annualized return over the available price history.
+    Formula: ((end_price / start_price) ** (252 / n_trading_days) - 1) * 100
+    Added for Change #4.
     """
-    start = df["Close"].iloc[0]
-    end   = df["Close"].iloc[-1]
-    n     = len(df)
-    return ((end / start) ** (252 / n) - 1) * 100
+    prices         = df["Close"].dropna()
+    end_price      = prices.iloc[-1]
+    start_price    = prices.iloc[0]
+    n_trading_days = len(prices)
+    if n_trading_days < 2 or start_price == 0:
+        return 0.0
+    return ((end_price / start_price) ** (252 / n_trading_days) - 1) * 100
 
 
-def classify_volatility(vol: float) -> str:
-    """PROCESSING: Bucket annualised volatility into High / Medium / Low."""
-    if vol > 40:  return "High"
-    if vol >= 25: return "Medium"
-    return "Low"
-
-
-def build_recommendation(ticker, trend, rsi, vol_level, vol):
+def build_recommendation(ticker, trend, rsi_value, vol_level, volatility):
     """
-    PROCESSING: Combine trend + RSI + volatility into a BUY / SELL / HOLD call.
-    Returns (recommendation_string, explanation_string).
+    PROCESSING: Combine trend, RSI, and volatility into BUY / SELL / HOLD.
+    Returns (recommendation, explanation) strings.
     """
-    if trend == "Strong Uptrend" and rsi < 70:
+    if trend == "Strong Uptrend" and rsi_value < 70:
         rec = "BUY"
         exp = (
-            f"{ticker} is in a strong uptrend (Price > 20-Day MA > 50-Day MA) "
-            f"with RSI not yet overbought ({rsi:.1f}). "
-            f"Volatility is {vol_level.lower()} at {vol:.1f}%. Conditions support a buy."
+            f"{ticker} is in a strong uptrend (Price > 20MA > 50MA) "
+            f"and RSI is not overbought ({rsi_value:.1f}). "
+            f"Volatility is {vol_level.lower()} ({volatility:.1f}%). "
+            "Conditions support a buy."
         )
-    elif trend == "Strong Downtrend" or rsi > 70:
+    elif trend == "Strong Downtrend" or rsi_value > 70:
         rec = "SELL"
         exp = (
-            f"{ticker} shows a downtrend or overbought RSI ({rsi:.1f}). "
-            f"Trend: {trend}. Volatility: {vol_level.lower()} ({vol:.1f}%). "
+            f"{ticker} shows a downtrend or overbought RSI ({rsi_value:.1f}). "
+            f"Trend: {trend}. Volatility: {vol_level.lower()} ({volatility:.1f}%). "
             "Consider reducing exposure."
         )
     else:
         rec = "HOLD"
         exp = (
             f"Mixed signals for {ticker}. Trend: {trend}. "
-            f"RSI: {rsi:.1f} (Neutral). "
-            f"Volatility: {vol_level.lower()} ({vol:.1f}%). "
-            "Wait for a clearer signal before acting."
+            f"RSI: {rsi_value:.1f} (Neutral). "
+            f"Volatility: {vol_level.lower()} ({volatility:.1f}%). "
+            "Wait for a clearer signal."
         )
     return rec, exp
 
 
-# ── Portfolio Dashboard helpers ─────────────────────────────────────────────
+# ── Portfolio Dashboard ──
 
 def fetch_portfolio_data(tickers: list, benchmark: str) -> pd.DataFrame:
-    """DATA: 1 year of closing prices for all portfolio tickers plus benchmark."""
-    raw = yf.download(tickers + [benchmark], period="1y", progress=False)["Close"]
+    """DATA: Download 1 year of closing prices for all portfolio stocks + benchmark."""
+    all_tickers = tickers + [benchmark]
+    raw = yf.download(all_tickers, period="1y", progress=False)["Close"]
     return raw
 
 
 def calc_portfolio_returns(raw, tickers, weights, benchmark):
     """
-    PROCESSING: Weighted portfolio returns and cumulative growth curves.
-    Returns: returns_df, port_daily, bench_daily, port_cumulative, bench_cumulative.
+    PROCESSING: Daily and cumulative returns for portfolio and benchmark.
+    Portfolio return = weighted dot product of individual stock daily returns.
     """
-    rets       = raw.pct_change().dropna()
-    port_rets  = rets[tickers].dot(weights)
-    bench_rets = rets[benchmark]
-    port_cum   = (1 + port_rets).cumprod()
-    bench_cum  = (1 + bench_rets).cumprod()
-    return rets, port_rets, bench_rets, port_cum, bench_cum
+    returns              = raw.pct_change().dropna()
+    portfolio_returns    = returns[tickers].dot(weights)
+    benchmark_returns    = returns[benchmark]
+    portfolio_cumulative = (1 + portfolio_returns).cumprod()
+    benchmark_cumulative = (1 + benchmark_returns).cumprod()
+    return returns, portfolio_returns, benchmark_returns, portfolio_cumulative, benchmark_cumulative
 
 
-def calc_performance_metrics(port_rets, bench_rets, port_cum, bench_cum):
-    """
-    PROCESSING: Total return, outperformance, annualised volatility, Sharpe ratio.
-    Sharpe uses a 0% risk-free rate assumption.
-    """
-    total_ret = (port_cum.iloc[-1]  - 1) * 100
-    bench_ret = (bench_cum.iloc[-1] - 1) * 100
-    outperf   = total_ret - bench_ret
-    port_vol  = port_rets.std()  * np.sqrt(252) * 100
-    bench_vol = bench_rets.std() * np.sqrt(252) * 100
-    ann_ret   = port_rets.mean() * 252
-    sharpe    = ann_ret / (port_rets.std() * np.sqrt(252))
-    return total_ret, bench_ret, outperf, port_vol, bench_vol, sharpe
+def calc_performance_metrics(portfolio_returns, benchmark_returns, portfolio_cumulative, benchmark_cumulative):
+    """PROCESSING: Total return, annualized volatility, and Sharpe ratio."""
+    total_return           = (portfolio_cumulative.iloc[-1] - 1) * 100
+    benchmark_total_return = (benchmark_cumulative.iloc[-1] - 1) * 100
+    outperformance         = total_return - benchmark_total_return
+    port_volatility        = portfolio_returns.std() * np.sqrt(252) * 100
+    bench_volatility       = benchmark_returns.std() * np.sqrt(252) * 100
+    annualized_return      = portfolio_returns.mean() * 252
+    sharpe_ratio           = annualized_return / (portfolio_returns.std() * np.sqrt(252))
+    return total_return, benchmark_total_return, outperformance, port_volatility, bench_volatility, sharpe_ratio
 
 
-def build_interpretation(benchmark, total_ret, bench_ret,
-                          outperf, port_vol, bench_vol, sharpe) -> list:
-    """
-    PROCESSING: Produce 3 plain-English summary sentences from metrics.
-    """
+def build_interpretation(benchmark, total_return, benchmark_total_return,
+                          outperformance, port_volatility, bench_volatility, sharpe_ratio) -> list:
+    """PROCESSING: Convert metrics into plain-English interpretation sentences."""
     lines = []
-    word = "outperformed" if outperf > 0 else "underperformed"
-    lines.append(f"The portfolio {word} {benchmark} by {abs(outperf):.2f}%.")
-
-    risk_word = "more" if port_vol > bench_vol else "less"
-    lines.append(
-        f"The portfolio carried {risk_word} risk than the benchmark "
-        f"({port_vol:.2f}% vs {bench_vol:.2f}% annualised volatility)."
-    )
-
-    if sharpe > 1:
-        lines.append(f"A Sharpe ratio of {sharpe:.2f} indicates good risk-adjusted returns.")
-    elif sharpe > 0:
-        lines.append(f"A Sharpe ratio of {sharpe:.2f} indicates modest risk-adjusted returns.")
+    if outperformance > 0:
+        lines.append(f"The portfolio outperformed {benchmark} by {outperformance:.2f}%.")
     else:
-        lines.append(
-            f"A Sharpe ratio of {sharpe:.2f} — returns did not compensate for risk taken."
-        )
+        lines.append(f"The portfolio underperformed {benchmark} by {abs(outperformance):.2f}%.")
+    if port_volatility > bench_volatility:
+        lines.append(f"The portfolio carried more risk than the benchmark ({port_volatility:.2f}% vs {bench_volatility:.2f}% volatility).")
+    else:
+        lines.append(f"The portfolio carried less risk than the benchmark ({port_volatility:.2f}% vs {bench_volatility:.2f}% volatility).")
+    if sharpe_ratio > 1:
+        lines.append(f"A Sharpe ratio of {sharpe_ratio:.2f} suggests good risk-adjusted returns.")
+    elif sharpe_ratio > 0:
+        lines.append(f"A Sharpe ratio of {sharpe_ratio:.2f} suggests modest risk-adjusted returns.")
+    else:
+        lines.append(f"A Sharpe ratio of {sharpe_ratio:.2f} suggests returns did not compensate for the risk taken.")
     return lines
 
 
-# ─── 6. CHART FUNCTIONS ────────────────────────────────────────────────────────
-# Each function returns a styled matplotlib Figure. No st.pyplot() here.
-
-def _style(ax, fig, title=""):
-    """
-    DISPLAY: Apply dark terminal theme to any matplotlib Axes.
-    Called by every chart function below.
-    """
-    fig.patch.set_facecolor(C_SURFACE)
-    ax.set_facecolor(C_BG)
-    ax.set_title(title, color=C_TEXT, fontsize=9.5, pad=8, fontweight="bold")
-    ax.set_xlabel(ax.get_xlabel(), color=C_MUTED, fontsize=7.5)
-    ax.set_ylabel(ax.get_ylabel(), color=C_MUTED, fontsize=7.5)
-    ax.tick_params(colors=C_MUTED, labelsize=6.5)
-    for s in ("top", "right"):
-        ax.spines[s].set_visible(False)
-    ax.spines["left"].set_color(C_BORDER)
-    ax.spines["bottom"].set_color(C_BORDER)
-    ax.grid(True, color="#1C1C1C", linewidth=0.5, alpha=0.9)
-    ax.axhline(ax.get_ylim()[0], color=C_ACCENT, linewidth=0.9, alpha=0.3)
-    leg = ax.get_legend()
-    if leg:
-        leg.get_frame().set_facecolor(C_SURFACE)
-        leg.get_frame().set_edgecolor(C_BORDER)
-        for t in leg.get_texts():
-            t.set_color(C_TEXT)
-            t.set_fontsize(7)
-
+# ─── 5. CHART FUNCTIONS ────────────────────────────────────────────────────────
+# Each function builds and returns one styled matplotlib figure.
 
 def chart_price_ma(df, ticker):
-    """DISPLAY: Close price with 20-day and 50-day moving average overlays."""
-    fig, ax = plt.subplots(figsize=(10, 3.2))
-    ax.plot(df.index, df["Close"], label="Price",     color=CH_PRICE, lw=1.8)
-    ax.plot(df.index, df["MA20"],  label="20-Day MA", color=CH_MA20,  lw=1.1, ls="--")
-    ax.plot(df.index, df["MA50"],  label="50-Day MA", color=CH_MA50,  lw=1.1, ls="--")
+    """DISPLAY: Price line chart with 20-day and 50-day moving averages."""
+    fig, ax = plt.subplots(figsize=(12, 3.5))
+    ax.plot(df.index, df["Close"], label="Close Price", color=CH_PRICE, linewidth=1.8)
+    ax.plot(df.index, df["MA20"],  label="20-Day MA",   color=CH_MA20,  linestyle="--", linewidth=1)
+    ax.plot(df.index, df["MA50"],  label="50-Day MA",   color=CH_MA50,  linestyle="--", linewidth=1)
     ax.set_xlabel("Date")
     ax.set_ylabel("Price ($)")
-    ax.legend(loc="upper left", fontsize=7)
-    _style(ax, fig, f"{ticker}  |  PRICE & MOVING AVERAGES")
+    ax.legend(loc="upper left")
+    style_chart(ax, fig, title=f"{ticker}  |  PRICE & MOVING AVERAGES")
     fig.tight_layout()
     return fig
 
 
 def chart_rsi(df, ticker):
-    """DISPLAY: 14-day RSI with overbought (70) and oversold (30) shading."""
-    fig, ax = plt.subplots(figsize=(10, 2.4))
-    ax.plot(df.index, df["RSI"], label="RSI (14)", color=CH_RSI, lw=1.5)
-    ax.axhline(70, color=C_RED,   ls="--", lw=0.85, label="Overbought 70")
-    ax.axhline(30, color=C_GREEN, ls="--", lw=0.85, label="Oversold 30")
-    ax.fill_between(df.index, 70, 100, alpha=0.05, color=C_RED)
-    ax.fill_between(df.index, 0,  30,  alpha=0.05, color=C_GREEN)
+    """DISPLAY: RSI chart with shaded overbought/oversold zones."""
+    fig, ax = plt.subplots(figsize=(12, 2.5))
+    ax.plot(df.index, df["RSI"], label="RSI (14)", color=CH_RSI, linewidth=1.5)
+    ax.axhline(70, color=C_RED,   linestyle="--", linewidth=0.9, label="Overbought (70)")
+    ax.axhline(30, color=C_GREEN, linestyle="--", linewidth=0.9, label="Oversold (30)")
+    ax.fill_between(df.index, 70, 100, alpha=0.06, color=C_RED)
+    ax.fill_between(df.index, 0,  30,  alpha=0.06, color=C_GREEN)
     ax.set_ylim(0, 100)
     ax.set_xlabel("Date")
     ax.set_ylabel("RSI")
-    ax.legend(loc="upper left", fontsize=7)
-    _style(ax, fig, f"{ticker}  |  RSI (14-DAY)")
+    ax.legend(loc="upper left")
+    style_chart(ax, fig, title=f"{ticker}  |  RSI (14-DAY)")
     fig.tight_layout()
     return fig
 
 
-def chart_cumulative_returns(port_cum, bench_cum, benchmark):
-    """DISPLAY: Cumulative growth-of-$1 chart — portfolio vs benchmark."""
-    fig, ax = plt.subplots(figsize=(10, 3.2))
-    ax.plot(port_cum.index,  port_cum,  label="Portfolio", color=CH_PORT,  lw=2)
-    ax.plot(bench_cum.index, bench_cum, label=benchmark,   color=CH_BENCH, lw=1.5, ls="--")
-    ax.axhline(1.0, color=C_MUTED, lw=0.65, ls=":")
+def chart_cumulative_returns(portfolio_cumulative, benchmark_cumulative, benchmark):
+    """DISPLAY: Cumulative return chart: portfolio vs benchmark (growth of $1)."""
+    fig, ax = plt.subplots(figsize=(12, 3.5))
+    ax.plot(portfolio_cumulative.index, portfolio_cumulative, label="Portfolio", color=CH_PORT,  linewidth=2)
+    ax.plot(benchmark_cumulative.index, benchmark_cumulative, label=benchmark,   color=CH_BENCH, linewidth=1.5, linestyle="--")
+    ax.axhline(1.0, color=C_MUTED, linewidth=0.7, linestyle=":")
     ax.set_xlabel("Date")
     ax.set_ylabel("Growth of $1")
-    ax.legend(loc="upper left", fontsize=7)
-    _style(ax, fig, "PORTFOLIO vs BENCHMARK  |  CUMULATIVE RETURN")
+    ax.legend(loc="upper left")
+    style_chart(ax, fig, title="PORTFOLIO vs BENCHMARK  |  CUMULATIVE RETURN")
     fig.tight_layout()
     return fig
 
 
 def chart_individual_returns(returns, tickers):
-    """DISPLAY: Bar chart of each stock's 1-year total return (green = gain, red = loss)."""
-    ind    = ((1 + returns[tickers]).cumprod().iloc[-1] - 1) * 100
-    colors = [C_GREEN if v >= 0 else C_RED for v in ind.values]
-    w      = max(6, len(tickers) * 1.3)
-    fig, ax = plt.subplots(figsize=(w, 3.2))
-    ax.bar(ind.index, ind.values, color=colors, width=0.55, alpha=0.9)
-    ax.axhline(0, color=C_MUTED, lw=0.7)
+    """
+    DISPLAY: Bar chart of each stock's 1-year total return.
+    figsize scales with number of tickers (Change #8).
+    """
+    individual_returns = ((1 + returns[tickers]).cumprod().iloc[-1] - 1) * 100
+    colors = [C_GREEN if v >= 0 else C_RED for v in individual_returns.values]
+    # Scale width with ticker count (Change #8)
+    fig, ax = plt.subplots(figsize=(max(6, len(tickers) * 1.3), 3.2))
+    ax.bar(individual_returns.index, individual_returns.values, color=colors, width=0.5, alpha=0.9)
+    ax.axhline(0, color=C_MUTED, linewidth=0.8)
     ax.set_xlabel("Ticker")
     ax.set_ylabel("Return (%)")
-    for i, (t, v) in enumerate(ind.items()):
-        offset = 0.8 if v >= 0 else -3.2
-        ax.text(i, v + offset, f"{v:.1f}%",
-                ha="center", fontsize=7.5,
-                color=C_GREEN if v >= 0 else C_RED)
-    _style(ax, fig, "INDIVIDUAL STOCK RETURNS  |  1 YEAR")
+    for i, (t, val) in enumerate(individual_returns.items()):
+        offset = 0.8 if val >= 0 else -3.5
+        ax.text(i, val + offset, f"{val:.1f}%",
+                ha="center", fontsize=8,
+                color=C_GREEN if val >= 0 else C_RED)
+    style_chart(ax, fig, title="INDIVIDUAL STOCK RETURNS (1 YEAR)")
     fig.tight_layout()
     return fig
 
 
-# ─── 7. UI / DISPLAY FUNCTIONS ─────────────────────────────────────────────────
-# All st.* calls live here — no calculations or chart building in this section.
+# ─── 6. DISPLAY / UI FUNCTIONS ─────────────────────────────────────────────────
+# All st.* rendering calls live here. No math in this section.
 
-def ui_step_header(n: int, title: str):
-    """DISPLAY: Numbered step label, subheader, and a thin orange divider."""
-    st.markdown(f"<p class='step-label'>Step {n}</p>", unsafe_allow_html=True)
+def ui_step_header(step_num: int, title: str):
+    """DISPLAY: Step header with small uppercase label and orange divider."""
+    st.markdown(f"<p class='step-label'>Step {step_num}</p>", unsafe_allow_html=True)
     st.subheader(title)
-    st.markdown("<hr class='acc-divider'>", unsafe_allow_html=True)
+    st.markdown("<hr class='fin-divider'>", unsafe_allow_html=True)
 
 
-def ui_badge(rec: str, explanation: str):
+def ui_badge(recommendation: str, explanation: str):
     """
-    DISPLAY: Coloured BUY / SELL / HOLD badge, explanation text, and disclaimer.
-    The disclaimer is required per project spec.
+    DISPLAY: Colored BUY / SELL / HOLD badge with explanation text and disclaimer.
+    Disclaimer added per Change #5.
     """
-    cls = {"BUY": "badge-buy", "SELL": "badge-sell"}.get(rec, "badge-hold")
-    st.markdown(f"<div class='{cls}'>{rec}</div>", unsafe_allow_html=True)
+    badge_class = {
+        "BUY":  "badge-buy",
+        "SELL": "badge-sell",
+        "HOLD": "badge-hold"
+    }.get(recommendation, "badge-hold")
+    st.markdown(f"<div class='{badge_class}'>{recommendation}</div>", unsafe_allow_html=True)
     st.write("")
     st.write(explanation)
+    # Change #5: disclaimer in small italic muted text with left border
     st.markdown(
-        "<p class='disclaimer'>This is the recommendation based off of the shown "
-        "variables. This is not financial advice.</p>",
+        "<div class='rec-disclaimer'>"
+        "This is the recommendation based off of the shown variables. "
+        "This is not financial advice."
+        "</div>",
         unsafe_allow_html=True
     )
 
 
-def ui_landing_stock():
+def ui_hero_stock():
     """
-    DISPLAY: Hero card shown on the Stock Analysis page before analysis runs.
-    Replaces the previous plain grey placeholder text.
+    DISPLAY: Polished landing hero card for Stock Analysis (Change #10).
+    Shown before the user runs analysis.
     """
-    st.markdown(f"""
+    st.markdown("""
     <div class="hero-card">
-        <div class="hero-title">STOCK <span>ANALYTICS</span></div>
-        <div class="hero-sub">
-            Real-time signals, moving averages, momentum, and volatility —<br>
+        <div class="hero-title">STOCK <span class="accent">ANALYTICS</span></div>
+        <div class="hero-subtitle">
+            Real-time signals, moving averages, momentum, and volatility —
             all in one professional dashboard.
         </div>
         <div class="hero-chips">
-            <span class="chip">TREND ANALYSIS</span>
-            <span class="chip">RSI MOMENTUM</span>
-            <span class="chip">VOLATILITY</span>
-            <span class="chip">TRADING SIGNAL</span>
-            <span class="chip">ANNUALISED RETURN</span>
+            <span class="hero-chip">TREND ANALYSIS</span>
+            <span class="hero-chip">RSI MOMENTUM</span>
+            <span class="hero-chip">VOLATILITY</span>
+            <span class="hero-chip">TRADING SIGNAL</span>
+            <span class="hero-chip">ANNUALISED RETURN</span>
         </div>
         <div class="hero-hint">
-            Enter a <strong>ticker symbol</strong> in the sidebar and press
-            <strong>Run Analysis</strong> to begin.
+            Enter a ticker symbol in the sidebar and press Run Analysis to begin.
         </div>
     </div>
     """, unsafe_allow_html=True)
 
 
-def ui_landing_portfolio():
+def ui_hero_portfolio():
     """
-    DISPLAY: Hero card shown on the Portfolio Dashboard page before analysis runs.
+    DISPLAY: Polished landing hero card for Portfolio Dashboard (Change #10).
+    Shown before the user runs analysis.
     """
-    st.markdown(f"""
+    st.markdown("""
     <div class="hero-card">
-        <div class="hero-title">PORTFOLIO <span>DASHBOARD</span></div>
-        <div class="hero-sub">
-            Multi-asset return analytics, risk metrics, and benchmark comparison —<br>
-            customise your holdings with the sidebar sliders.
+        <div class="hero-title">PORTFOLIO <span class="accent">DASHBOARD</span></div>
+        <div class="hero-subtitle">
+            Multi-asset portfolio returns, risk metrics, and benchmark comparison —
+            built for professional portfolio analysis.
         </div>
         <div class="hero-chips">
-            <span class="chip">CUMULATIVE RETURN</span>
-            <span class="chip">VOLATILITY</span>
-            <span class="chip">SHARPE RATIO</span>
-            <span class="chip">BENCHMARK</span>
-            <span class="chip">OUTPERFORMANCE</span>
+            <span class="hero-chip">PORTFOLIO RETURNS</span>
+            <span class="hero-chip">BENCHMARK COMPARISON</span>
+            <span class="hero-chip">VOLATILITY</span>
+            <span class="hero-chip">SHARPE RATIO</span>
+            <span class="hero-chip">INDIVIDUAL RETURNS</span>
         </div>
         <div class="hero-hint">
-            Set tickers &amp; adjust weights in the sidebar, then press
-            <strong>Run Analysis</strong>.
+            Enter your tickers, adjust weights, and press Run Analysis to begin.
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -834,344 +875,323 @@ def ui_landing_portfolio():
 
 def ui_stock_analysis(ticker: str):
     """
-    DISPLAY: Renders all 5 steps of Stock Analysis.
-    Steps: Data Collection → Trend → Momentum (RSI) → Volatility → Recommendation.
+    DISPLAY: Render all 5 steps for Stock Analysis.
+    Calls calculation functions for data, then renders each step.
     """
 
     # ── Step 1: Data Collection ───────────────────────────────────────────────
     ui_step_header(1, "Data Collection")
-    _, df = fetch_stock_data(ticker)
+    stock, df = fetch_stock_data(ticker)
 
     if df.empty:
-        st.error(f"No data found for '{ticker}'. Please check the ticker symbol.")
+        st.error(f"No data found for '{ticker}'. Check the ticker symbol.")
         st.stop()
 
-    st.success(f"✓  6 months of daily data loaded for **{ticker}**")
-
-    # Expander: label is short and descriptive; the raw <summary> is CSS-hidden
-    # so there is no double-arrow or overlapping text.
-    with st.expander("View Raw Data (Last 10 Rows)"):
-        st.dataframe(
-            df[["Open", "High", "Low", "Close", "Volume"]].tail(10),
-            use_container_width=True
-        )
+    st.success(f"6 months of daily data loaded for {ticker}")
+    # Change #3: short descriptive label, expander double-arrow bug fixed via CSS
+    with st.expander("View Raw Data (Last 10 Rows)", expanded=False):
+        st.dataframe(df[["Open", "High", "Low", "Close", "Volume"]].tail(10),
+                     use_container_width=True)
 
     # ── Step 2: Trend Analysis ────────────────────────────────────────────────
     ui_step_header(2, "Trend Analysis  |  Moving Averages")
     df    = calc_moving_averages(df)
     trend = calc_trend(df)
+    price = df["Close"].iloc[-1]
+    ma20  = df["MA20"].iloc[-1]
+    ma50  = df["MA50"].iloc[-1]
 
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Current Price", f"${df['Close'].iloc[-1]:.2f}")
-    c2.metric("20-Day MA",     f"${df['MA20'].iloc[-1]:.2f}")
-    c3.metric("50-Day MA",     f"${df['MA50'].iloc[-1]:.2f}")
-    c4.metric("Trend Signal",  trend)
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Current Price", f"${price:.2f}")
+    col2.metric("20-Day MA",     f"${ma20:.2f}")
+    col3.metric("50-Day MA",     f"${ma50:.2f}")
+    col4.metric("Trend Signal",  trend)
 
     st.pyplot(chart_price_ma(df, ticker), use_container_width=True)
 
-    # ── Step 3: Momentum / RSI ────────────────────────────────────────────────
+    # ── Step 3: RSI Momentum ──────────────────────────────────────────────────
     ui_step_header(3, "Momentum  |  14-Day RSI")
     df        = calc_rsi(df)
-    rsi_value = float(df["RSI"].iloc[-1])
+    rsi_value = df["RSI"].iloc[-1]
     rsi_sig   = interpret_rsi(rsi_value)
 
-    c1, c2 = st.columns(2)
-    c1.metric("RSI (14-Day)", f"{rsi_value:.2f}")
-    c2.metric("Signal",       rsi_sig)
+    col1, col2 = st.columns(2)
+    col1.metric("RSI (14-Day)", f"{rsi_value:.2f}")
+    col2.metric("Signal",       rsi_sig)
 
     st.pyplot(chart_rsi(df, ticker), use_container_width=True)
 
-    # ── Step 4: Volatility & Annualised Return ────────────────────────────────
+    # ── Step 4: Volatility & Return (Change #4: added annualized return metric) ──
     ui_step_header(4, "Volatility & Return  |  20-Day Annualised")
-    vol      = calc_volatility(df)
-    vol_lvl  = classify_volatility(vol)
-    ann_ret  = calc_annualized_return(df)
+    volatility      = calc_volatility(df)
+    vol_level       = classify_volatility(volatility)
+    annualized_ret  = calc_annualized_return(df)  # Change #4: new metric
 
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Annualised Volatility", f"{vol:.2f}%")
-    c2.metric("Volatility Level",       vol_lvl)
-    c3.metric("Annualised Return",      f"{ann_ret:.2f}%")
+    # Three metric cards in a row (Change #4: third card added)
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Annualised Volatility", f"{volatility:.2f}%")
+    col2.metric("Volatility Level",      vol_level)
+    col3.metric("Annualised Return",     f"{annualized_ret:.2f}%")  # Change #4
 
-    # ── Step 5: Trading Recommendation ───────────────────────────────────────
+    # ── Step 5: Recommendation ────────────────────────────────────────────────
     ui_step_header(5, "Trading Recommendation")
-    rec, exp = build_recommendation(ticker, trend, rsi_value, vol_lvl, vol)
-    ui_badge(rec, exp)
+    rec, exp = build_recommendation(ticker, trend, rsi_value, vol_level, volatility)
+    ui_badge(rec, exp)  # disclaimer now included inside ui_badge (Change #5)
 
     # ── Download ──────────────────────────────────────────────────────────────
-    st.markdown(
-        f"<hr style='border-top:1px solid {C_BORDER};margin-top:2rem'>",
-        unsafe_allow_html=True
-    )
+    st.markdown(f"<hr style='border-top:1px solid {C_BORDER}; margin-top:2rem'>",
+                unsafe_allow_html=True)
+    csv = df.to_csv().encode("utf-8")
     st.download_button(
         label="Download Stock Data as CSV",
-        data=df.to_csv().encode("utf-8"),
-        file_name=f"{ticker}_analysis.csv",
+        data=csv,
+        file_name=f"{ticker}_stock_analysis.csv",
         mime="text/csv"
     )
 
 
-def ui_portfolio_dashboard(tickers_input: str, weights: list, benchmark: str):
+def ui_portfolio_dashboard(tickers_input: str, weights_norm: list, benchmark: str):
     """
-    DISPLAY: Renders all 6 steps of the Portfolio Dashboard.
-    Steps: Setup → Data → Return Calculations → Performance Metrics
-           → Interpretation → Individual Stock Returns.
-    Works with any number of tickers (not restricted to 5).
+    DISPLAY: Render all 6 steps for the Portfolio Dashboard.
+    Accepts pre-normalized weights list (Change #7).
+    Supports any number of tickers >= 1 (Change #8).
     """
-    tickers = [t.strip().upper() for t in tickers_input.split(",") if t.strip()]
+    # Parse tickers
+    tickers = [t.strip().upper() for t in tickers_input.split(",")]
 
-    # Input guards
-    if not tickers:
-        st.error("Enter at least one ticker symbol.")
+    # Change #8: allow any number of stocks, only require >= 1
+    if len(tickers) < 1:
+        st.error("Enter at least one ticker.")
         st.stop()
+
+    # weights_norm is already normalized (Change #7)
+    weights = weights_norm
+
     if len(weights) != len(tickers):
-        st.error("Weight count does not match ticker count. Please adjust the sidebar.")
-        st.stop()
-    if abs(sum(weights) - 1.0) > 0.01:
-        st.error(f"Weights sum to {sum(weights):.2f} — they must equal 1.00.")
+        st.error("Number of weights does not match number of tickers.")
         st.stop()
 
-    # ── Step 1: Portfolio Setup ───────────────────────────────────────────────
-    ui_step_header(1, "Portfolio Setup")
-    weight_df = pd.DataFrame({
-        "Ticker": tickers,
-        "Weight": [f"{w:.1%}" for w in weights]
-    })
-    c1, _ = st.columns([1, 3])
-    c1.dataframe(weight_df, use_container_width=True, hide_index=True)
-
-    # ── Step 2: Data Collection ───────────────────────────────────────────────
-    ui_step_header(2, "Data Collection  |  1 Year")
+    # ── Step 1: Data Collection ────────────────────────────────────────────────
+    ui_step_header(1, "Data Collection")
     raw = fetch_portfolio_data(tickers, benchmark)
 
     if raw.empty:
-        st.error("Could not download price data. Check your ticker symbols.")
+        st.error("Could not fetch data. Check ticker symbols.")
         st.stop()
 
-    st.success(f"✓  1 year of data loaded for: **{', '.join(tickers + [benchmark])}**")
-
-    with st.expander("View Closing Prices (Last 5 Rows)"):
+    st.success(f"1 year of data loaded for: {', '.join(tickers)} + {benchmark}")
+    # Change #3: short descriptive expander label
+    with st.expander("View Closing Prices (Last 5 Rows)", expanded=False):
         st.dataframe(raw.tail(5), use_container_width=True)
 
-    # ── Step 3: Return Calculations ───────────────────────────────────────────
-    ui_step_header(3, "Return Calculations  |  Portfolio vs Benchmark")
-    rets, port_rets, bench_rets, port_cum, bench_cum = \
-        calc_portfolio_returns(raw, tickers, weights, benchmark)
+    # ── Step 2: Portfolio Weights ──────────────────────────────────────────────
+    ui_step_header(2, "Portfolio Weights")
+    weight_data = pd.DataFrame({
+        "Ticker": tickers,
+        "Weight": [f"{w:.2%}" for w in weights]
+    })
+    st.dataframe(weight_data, use_container_width=True, hide_index=True)
 
-    st.pyplot(
-        chart_cumulative_returns(port_cum, bench_cum, benchmark),
-        use_container_width=True
+    # ── Step 3: Returns Calculation ───────────────────────────────────────────
+    ui_step_header(3, "Returns Calculation")
+    (returns, portfolio_returns, benchmark_returns,
+     portfolio_cumulative, benchmark_cumulative) = calc_portfolio_returns(
+        raw, tickers, weights, benchmark
+    )
+    st.success("Daily and cumulative returns computed successfully.")
+
+    # ── Step 4: Cumulative Return Chart ───────────────────────────────────────
+    ui_step_header(4, "Cumulative Return  |  Portfolio vs Benchmark")
+    st.pyplot(chart_cumulative_returns(portfolio_cumulative, benchmark_cumulative, benchmark),
+              use_container_width=True)
+
+    # ── Performance Metrics ───────────────────────────────────────────────────
+    (total_return, benchmark_total_return, outperformance,
+     port_volatility, bench_volatility, sharpe_ratio) = calc_performance_metrics(
+        portfolio_returns, benchmark_returns, portfolio_cumulative, benchmark_cumulative
     )
 
-    # ── Step 4: Performance Metrics ──────────────────────────────────────────
-    ui_step_header(4, "Performance Metrics")
-    total_ret, bench_ret, outperf, port_vol, bench_vol, sharpe = \
-        calc_performance_metrics(port_rets, bench_rets, port_cum, bench_cum)
-
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Portfolio Return",   f"{total_ret:.2f}%")
-    c2.metric("Benchmark Return",   f"{bench_ret:.2f}%",
-              delta=f"{outperf:+.2f}% vs benchmark")
-    c3.metric("Outperformance",     f"{outperf:+.2f}%")
-
-    st.write("")
-
-    c4, c5, c6 = st.columns(3)
-    c4.metric("Portfolio Volatility",  f"{port_vol:.2f}%")
-    c5.metric("Benchmark Volatility",  f"{bench_vol:.2f}%")
-    c6.metric("Sharpe Ratio",          f"{sharpe:.2f}")
+    col1, col2, col3 = st.columns(3)
+    col4, col5, col6 = st.columns(3)
+    col1.metric("Portfolio Return",    f"{total_return:.2f}%")
+    col2.metric(f"{benchmark} Return", f"{benchmark_total_return:.2f}%")
+    col3.metric("Outperformance",      f"{outperformance:.2f}%")
+    col4.metric("Portfolio Volatility",  f"{port_volatility:.2f}%")
+    col5.metric("Benchmark Volatility",  f"{bench_volatility:.2f}%")
+    col6.metric("Sharpe Ratio",          f"{sharpe_ratio:.2f}")
 
     # ── Step 5: Interpretation ────────────────────────────────────────────────
     ui_step_header(5, "Interpretation")
-    for line in build_interpretation(
-        benchmark, total_ret, bench_ret,
-        outperf, port_vol, bench_vol, sharpe
-    ):
+    lines = build_interpretation(benchmark, total_return, benchmark_total_return,
+                                  outperformance, port_volatility, bench_volatility, sharpe_ratio)
+    for line in lines:
         st.write(f"• {line}")
 
     # ── Step 6: Individual Stock Returns ──────────────────────────────────────
     st.write("")
     ui_step_header(6, "Individual Stock Returns")
-    st.pyplot(chart_individual_returns(rets, tickers), use_container_width=True)
+    st.pyplot(chart_individual_returns(returns, tickers), use_container_width=True)
 
     # ── Download ──────────────────────────────────────────────────────────────
-    st.markdown(
-        f"<hr style='border-top:1px solid {C_BORDER};margin-top:2rem'>",
-        unsafe_allow_html=True
-    )
-    combined = pd.DataFrame({"Portfolio": port_rets, benchmark: bench_rets})
+    st.markdown(f"<hr style='border-top:1px solid {C_BORDER}; margin-top:2rem'>",
+                unsafe_allow_html=True)
+    combined = pd.DataFrame({"Portfolio": portfolio_returns, benchmark: benchmark_returns})
+    csv = combined.to_csv().encode("utf-8")
     st.download_button(
         label="Download Portfolio Returns as CSV",
-        data=combined.to_csv().encode("utf-8"),
+        data=csv,
         file_name="portfolio_returns.csv",
         mime="text/csv"
     )
 
 
-# ─── 8. MAIN ENTRY POINT ───────────────────────────────────────────────────────
+# ─── 7. MAIN APP ENTRY POINT ───────────────────────────────────────────────────
 
 def main():
-    # set_page_config must be the very first Streamlit call
+    # Change #1: initial_sidebar_state expanded, no Bloomberg in title
     st.set_page_config(
         page_title="FIN 330 | Analytics Dashboard",
         page_icon="📊",
         layout="wide",
-        initial_sidebar_state="expanded"   # sidebar open on load (including mobile)
+        initial_sidebar_state="expanded"   # Change #1
     )
 
-    # Inject CSS theme
+    # Apply dark theme CSS
     apply_theme()
 
-    # ── Orange top bar ────────────────────────────────────────────────────────
-    now = datetime.datetime.now().strftime("%H:%M  %b %d, %Y")
+    # ── Orange top bar (Change #2: removed "Bloomberg" references) ────────────
+    import datetime
+    now_str = datetime.datetime.now().strftime("%H:%M:%S  %b %d, %Y")
     st.markdown(f"""
-    <div class="top-bar">
-        <span class="top-bar-title">FIN 330 &nbsp;|&nbsp; ANALYTICS DASHBOARD</span>
-        <span class="top-bar-right">LIVE DATA · {now}</span>
+    <div class="fin-topbar">
+        <span class="fin-topbar-title">FIN 330  &nbsp;|&nbsp;  STOCK ANALYTICS TERMINAL</span>
+        <span class="fin-topbar-right">YAHOO FINANCE DATA  &nbsp;&bull;&nbsp;  {now_str}</span>
     </div>
     """, unsafe_allow_html=True)
 
-    # ── Scrolling ticker tape ─────────────────────────────────────────────────
+    # ── Live S&P 500 ticker tape ───────────────────────────────────────────────
     render_ticker_tape()
 
-    # Small vertical spacer between tape and content
-    st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='height:1rem'></div>", unsafe_allow_html=True)
 
-    # ── Sidebar header ────────────────────────────────────────────────────────
+    # ── Sidebar header (Change #2: no Bloomberg references) ───────────────────
     st.sidebar.markdown(f"""
-    <div style="padding:10px 0 6px;">
-        <span style="color:{C_ACCENT};font-size:1.05rem;font-weight:700;
-                     letter-spacing:0.1em;">FIN 330</span><br>
-        <span style="color:{C_MUTED};font-size:0.7rem;letter-spacing:0.06em;">
-            ANALYTICS DASHBOARD
-        </span>
+    <div style='padding:12px 0 4px 0;'>
+        <span style='color:{C_ACCENT}; font-size:1.1rem; font-weight:700;
+                     letter-spacing:0.1em; font-family:{FONT};'>FIN 330</span><br>
+        <span style='color:{C_MUTED}; font-size:0.72rem; letter-spacing:0.06em;
+                     font-family:{FONT};'>ANALYTICS TERMINAL</span>
     </div>
     """, unsafe_allow_html=True)
+    st.sidebar.markdown(f"<hr style='border-top:2px solid {C_ACCENT}; margin:0.5rem 0'>",
+                        unsafe_allow_html=True)
 
-    st.sidebar.markdown(
-        f"<hr style='border-top:2px solid {C_ACCENT};margin:0.3rem 0 0.6rem;'>",
-        unsafe_allow_html=True
-    )
-
-    # ── Navigation ────────────────────────────────────────────────────────────
     section = st.sidebar.radio(
         "Navigate",
         ["Stock Analysis", "Portfolio Dashboard"],
         label_visibility="collapsed"
     )
+    st.sidebar.markdown(f"<hr style='border-top:1px solid {C_BORDER}; margin:0.5rem 0'>",
+                        unsafe_allow_html=True)
 
-    st.sidebar.markdown(
-        f"<hr style='border-top:1px solid {C_BORDER};margin:0.5rem 0;'>",
-        unsafe_allow_html=True
-    )
-
-    # ══ STOCK ANALYSIS PAGE ══════════════════════════════════════════════════
-
+    # ── Stock Analysis section ────────────────────────────────────────────────
     if section == "Stock Analysis":
+        # Change #11: uppercase muted label
         st.sidebar.markdown(
-            f"<p style='color:{C_MUTED};font-size:0.66rem;text-transform:uppercase;"
-            f"letter-spacing:0.14em;margin-bottom:0.3rem;'>Stock Settings</p>",
+            f"<p class='sidebar-section-label'>Stock Settings</p>",
             unsafe_allow_html=True
         )
-        ticker = st.sidebar.text_input("Ticker Symbol", "AAPL").upper().strip()
+        ticker = st.sidebar.text_input("Ticker Symbol", "AAPL").upper()
         st.sidebar.write("")
         run = st.sidebar.button("Run Analysis")
 
-        # Page header
+        # Page header (Change #11: orange, bold, letter-spacing)
         st.markdown(
-            f"<h2 style='color:{C_ACCENT};font-weight:700;letter-spacing:0.05em;"
-            f"margin-bottom:0;font-size:clamp(1.1rem,3vw,1.45rem);'>STOCK ANALYSIS</h2>",
+            f"<h2 style='color:{C_ACCENT}; font-family:{FONT}; font-weight:700; "
+            f"letter-spacing:0.05em; margin-bottom:0;'>STOCK ANALYSIS</h2>",
             unsafe_allow_html=True
         )
         st.markdown(
-            f"<p style='color:{C_MUTED};margin-top:0.15rem;font-size:0.82rem;'>"
-            "Individual stock trend, momentum, volatility and trading recommendation.</p>",
+            f"<p style='color:{C_MUTED}; font-family:{FONT}; margin-top:0.1rem; "
+            f"font-size:0.85rem;'>Individual stock trend, momentum, volatility, and recommendation.</p>",
             unsafe_allow_html=True
         )
-        st.markdown(
-            f"<hr style='border-top:1px solid {C_BORDER};margin-bottom:1rem;'>",
-            unsafe_allow_html=True
-        )
+        st.markdown(f"<hr style='border-top:1px solid {C_BORDER}; margin-bottom:1.2rem'>",
+                    unsafe_allow_html=True)
 
         if run:
             ui_stock_analysis(ticker)
         else:
-            ui_landing_stock()
+            # Change #10: polished hero card instead of plain placeholder
+            ui_hero_stock()
 
-    # ══ PORTFOLIO DASHBOARD PAGE ════════════════════════════════════════════
-
+    # ── Portfolio Dashboard section ───────────────────────────────────────────
     elif section == "Portfolio Dashboard":
+        # Change #11: uppercase muted label
         st.sidebar.markdown(
-            f"<p style='color:{C_MUTED};font-size:0.66rem;text-transform:uppercase;"
-            f"letter-spacing:0.14em;margin-bottom:0.3rem;'>Portfolio Settings</p>",
+            f"<p class='sidebar-section-label'>Portfolio Settings</p>",
             unsafe_allow_html=True
         )
 
+        # Tickers input
         tickers_input = st.sidebar.text_input(
-            "Tickers (comma-separated)",
-            "AAPL, MSFT, JPM, AMZN, NVDA"
+            "Tickers (comma-separated)", "AAPL, MSFT, JPM, AMZN, NVDA"
         )
-        benchmark = st.sidebar.text_input("Benchmark ETF", "SPY").upper().strip()
 
-        # Parse tickers so sliders can be built per-ticker immediately
-        raw_tickers = [t.strip().upper()
-                       for t in tickers_input.split(",") if t.strip()]
+        # Change #7: parse tickers immediately, generate one slider per ticker
+        raw_tickers = [t.strip().upper() for t in tickers_input.split(",") if t.strip()]
+        n = max(len(raw_tickers), 1)
 
-        # ── Weight sliders — one per ticker, auto-normalised ──────────────────
+        st.sidebar.markdown(
+            f"<p class='sidebar-section-label' style='margin-top:0.6rem;'>Portfolio Weights</p>",
+            unsafe_allow_html=True
+        )
         weights_raw = []
-        if raw_tickers:
-            st.sidebar.markdown(
-                f"<p style='color:{C_MUTED};font-size:0.66rem;text-transform:uppercase;"
-                f"letter-spacing:0.12em;margin-top:0.5rem;margin-bottom:0.2rem;'>Weights</p>",
-                unsafe_allow_html=True
+        for tk in raw_tickers:
+            w = st.sidebar.slider(
+                label=tk,
+                min_value=0.0,
+                max_value=1.0,
+                value=round(1 / n, 2),
+                step=0.01,
+                key=f"w_{tk}"
             )
-            default_w = round(1.0 / len(raw_tickers), 2)
-            for t in raw_tickers:
-                w = st.sidebar.slider(
-                    label=t,
-                    min_value=0.0,
-                    max_value=1.0,
-                    value=default_w,
-                    step=0.01,
-                    key=f"w_{t}"
-                )
-                weights_raw.append(w)
+            weights_raw.append(w)
 
-            # Normalise so weights always sum to exactly 1.00
-            total_w = sum(weights_raw)
-            if total_w > 0:
-                weights_norm = [w / total_w for w in weights_raw]
-            else:
-                weights_norm = [1.0 / len(raw_tickers)] * len(raw_tickers)
-
-            st.sidebar.caption("Weights auto-normalised → sum = 1.00")
+        # Normalize weights so they always sum to 1.00
+        total_w = sum(weights_raw)
+        if total_w == 0:
+            weights_norm = [1.0 / n] * n
         else:
-            weights_norm = []
+            weights_norm = [w / total_w for w in weights_raw]
+        st.sidebar.caption("Weights auto-normalised → sum = 1.00")
 
+        benchmark = st.sidebar.text_input("Benchmark ETF", "SPY").upper()
         st.sidebar.write("")
         run = st.sidebar.button("Run Analysis")
 
         # Page header
         st.markdown(
-            f"<h2 style='color:{C_ACCENT};font-weight:700;letter-spacing:0.05em;"
-            f"margin-bottom:0;font-size:clamp(1.1rem,3vw,1.45rem);'>PORTFOLIO DASHBOARD</h2>",
+            f"<h2 style='color:{C_ACCENT}; font-family:{FONT}; font-weight:700; "
+            f"letter-spacing:0.05em; margin-bottom:0;'>PORTFOLIO DASHBOARD</h2>",
             unsafe_allow_html=True
         )
         st.markdown(
-            f"<p style='color:{C_MUTED};margin-top:0.15rem;font-size:0.82rem;'>"
-            "Multi-asset return analytics, risk metrics and benchmark comparison.</p>",
+            f"<p style='color:{C_MUTED}; font-family:{FONT}; margin-top:0.1rem; "
+            f"font-size:0.85rem;'>Multi-asset portfolio return, risk, and benchmark comparison.</p>",
             unsafe_allow_html=True
         )
-        st.markdown(
-            f"<hr style='border-top:1px solid {C_BORDER};margin-bottom:1rem;'>",
-            unsafe_allow_html=True
-        )
+        st.markdown(f"<hr style='border-top:1px solid {C_BORDER}; margin-bottom:1.2rem'>",
+                    unsafe_allow_html=True)
 
         if run:
+            # Change #7: pass normalized weights list (not a string)
             ui_portfolio_dashboard(tickers_input, weights_norm, benchmark)
         else:
-            ui_landing_portfolio()
+            # Change #10: polished hero card instead of plain placeholder
+            ui_hero_portfolio()
 
 
-# ── Run ────────────────────────────────────────────────────────────────────────
+# Run the app
 if __name__ == "__main__":
     main()
